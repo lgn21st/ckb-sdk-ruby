@@ -117,6 +117,65 @@ module CKB
 
       tx.sign(key)
     end
+    
+    # @params data [Array] [["address", capacity] ...}
+    def generate_tx2(data: [], total: 0, key: nil, fee: 0, use_dep_group: true)
+      key = get_key(key)
+
+      outputs_data = []
+
+      outputs = data.inject([]) do |result, i|
+        outputs_data << "0x"
+
+        parsed_address = AddressParser.new(i.first).parse
+        raise "Right now only supports sending to default single signed lock!" if parsed_address.address_type == "SHORTMULTISIG"
+
+        output = Types::Output.new(
+          capacity: i.last,
+          lock: parsed_address.script
+        )
+
+        result << output
+      end
+
+      change_output = Types::Output.new(
+        capacity: 0,
+        lock: lock
+      )
+      change_output_data = "0x"
+
+      i = gather_inputs(
+        total,
+        61 * 10**8,
+        change_output.calculate_min_capacity(change_output_data),
+        fee
+      )
+      input_capacities = i.capacities
+
+      change_output.capacity = input_capacities - (total + fee)
+      if change_output.capacity.to_i > 0
+        outputs << change_output
+        outputs_data << change_output_data
+      end
+
+      tx = Types::Transaction.new(
+        version: 0,
+        cell_deps: [],
+        inputs: i.inputs,
+        outputs: outputs,
+        outputs_data: outputs_data,
+        witnesses: i.witnesses
+      )
+
+      if use_dep_group
+        tx.cell_deps << Types::CellDep.new(out_point: api.secp_group_out_point, dep_type: "dep_group")
+      else
+        tx.cell_deps << Types::CellDep.new(out_point: api.secp_code_out_point, dep_type: "code")
+        tx.cell_deps << Types::CellDep.new(out_point: api.secp_data_out_point, dep_type: "code")
+      end
+
+      tx.sign(key)
+    end
 
     # @param target_address [String]
     # @param capacity [Integer]
